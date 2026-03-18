@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="initial-scale=1,user-scalable=no,maximum-scale=1,width=device-width">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <link rel="stylesheet" href="css/leaflet.css">
+        <link rel="stylesheet" href="css/L.Control.Layers.Tree.css">
+        <link rel="stylesheet" href="css/L.Control.Locate.min.css">
+        <link rel="stylesheet" href="css/qgis2web.css">
+        <link rel="stylesheet" href="css/fontawesome-all.min.css">
+        <link rel="stylesheet" href="css/leaflet-search.css">
+        <link rel="stylesheet" href="css/filter.css">
+<link rel="stylesheet" href="css/nouislider.min.css">
+        <link rel="stylesheet" href="css/leaflet.photon.css">
+        <link rel="stylesheet" href="css/leaflet-measure.css">
+        <style>
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            margin: 0;
+        }
+        </style>
+        <title></title>
+    </head>
+    <body>
+        <div id="map">
+        </div>
+        <script src="js/qgis2web_expressions.js"></script>
+        <script src="js/leaflet.js"></script>
+        <script src="js/L.Control.Layers.Tree.min.js"></script>
+        <script src="js/L.Control.Locate.min.js"></script>
+        <script src="js/leaflet.rotatedMarker.js"></script>
+        <script src="js/leaflet.pattern.js"></script>
+        <script src="js/leaflet-hash.js"></script>
+        <script src="js/Autolinker.min.js"></script>
+        <script src="js/rbush.min.js"></script>
+        <script src="js/labelgun.min.js"></script>
+        <script src="js/labels.js"></script>
+        <script src="js/leaflet.photon.js"></script>
+        <script src="js/leaflet-measure.js"></script>
+        <script src="js/leaflet-search.js"></script>
+        <script src="js/tailDT.js"></script>
+<script src="js/nouislider.min.js"></script>
+<script src="js/wNumb.js"></script>
+        <script src="data/PREDIO_RURAL_2.js"></script>
+        <script src="data/CENTROS_POBLADOS_URBANO_3.js"></script>
+        <script>
+        var highlightLayer;
+        function highlightFeature(e) {
+            highlightLayer = e.target;
+
+            if (e.target.feature.geometry.type === 'LineString' || e.target.feature.geometry.type === 'MultiLineString') {
+              highlightLayer.setStyle({
+                color: 'rgba(255, 255, 0, 1.00)',
+              });
+            } else {
+              highlightLayer.setStyle({
+                fillColor: 'rgba(255, 255, 0, 1.00)',
+                fillOpacity: 1
+              });
+            }
+            highlightLayer.openPopup();
+        }
+        var map = L.map('map', {
+            zoomControl:false, maxZoom:28, minZoom:1
+        }).fitBounds([[-12.574799860237366,-73.93116595572481],[-12.42372398160751,-73.699594381321]]);
+        var hash = new L.Hash(map);
+        map.attributionControl.setPrefix('<a href="https://github.com/tomchadwin/qgis2web" target="_blank">qgis2web</a> &middot; <a href="https://leafletjs.com" title="A JS library for interactive maps">Leaflet</a> &middot; <a href="https://qgis.org">QGIS</a>');
+        var autolinker = new Autolinker({truncate: {length: 30, location: 'smart'}});
+        // remove popup's row if "visible-with-data"
+        function removeEmptyRowsFromPopupContent(content, feature) {
+         var tempDiv = document.createElement('div');
+         tempDiv.innerHTML = content;
+         var rows = tempDiv.querySelectorAll('tr');
+         for (var i = 0; i < rows.length; i++) {
+             var td = rows[i].querySelector('td.visible-with-data');
+             var key = td ? td.id : '';
+             if (td && td.classList.contains('visible-with-data') && feature.properties[key] == null) {
+                 rows[i].parentNode.removeChild(rows[i]);
+             }
+         }
+         return tempDiv.innerHTML;
+        }
+        // modify popup if contains media
+        function addClassToPopupIfMedia(content, popup) {
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            var imgTd = tempDiv.querySelector('td img');
+            if (imgTd) {
+                var src = imgTd.getAttribute('src');
+                if (/\.(jpg|jpeg|png|gif|bmp|webp|avif)$/i.test(src)) {
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp3|wav|ogg|aac)$/i.test(src)) {
+                    var audio = document.createElement('audio');
+                    audio.controls = true;
+                    audio.src = src;
+                    imgTd.parentNode.replaceChild(audio, imgTd);
+                    popup._contentNode.classList.add('media');
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else if (/\.(mp4|webm|ogg|mov)$/i.test(src)) {
+                    var video = document.createElement('video');
+                    video.controls = true;
+                    video.src = src;
+                    video.style.width = "400px";
+                    video.style.height = "300px";
+                    video.style.maxHeight = "60vh";
+                    video.style.maxWidth = "60vw";
+                    imgTd.parentNode.replaceChild(video, imgTd);
+                    popup._contentNode.classList.add('media');
+                    // Aggiorna il popup quando il video carica i metadati
+                    video.addEventListener('loadedmetadata', function() {
+                        popup.update();
+                    });
+                    setTimeout(function() {
+                        popup.setContent(tempDiv.innerHTML);
+                        popup.update();
+                    }, 10);
+                } else {
+                    popup._contentNode.classList.remove('media');
+                }
+            } else {
+                popup._contentNode.classList.remove('media');
+            }
+        }
+        var zoomControl = L.control.zoom({
+            position: 'topleft'
+        }).addTo(map);
+        L.control.locate({locateOptions: {maxZoom: 19}}).addTo(map);
+        var measureControl = new L.Control.Measure({
+            position: 'topleft',
+            primaryLengthUnit: 'meters',
+            secondaryLengthUnit: 'kilometers',
+            primaryAreaUnit: 'sqmeters',
+            secondaryAreaUnit: 'hectares'
+        });
+        measureControl.addTo(map);
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].innerHTML = '';
+        document.getElementsByClassName('leaflet-control-measure-toggle')[0].className += ' fas fa-ruler';
+        var bounds_group = new L.featureGroup([]);
+        function setBounds() {
+        }
+        map.createPane('pane_maps_0');
+        map.getPane('pane_maps_0').style.zIndex = 400;
+        var layer_maps_0 = L.tileLayer('https://mt1.google.com/vt/lyrs=r&x={x}&y={y}&z={z}', {
+            pane: 'pane_maps_0',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 18
+        });
+        layer_maps_0;
+        map.addLayer(layer_maps_0);
+        map.createPane('pane_satelite_1');
+        map.getPane('pane_satelite_1').style.zIndex = 401;
+        var layer_satelite_1 = L.tileLayer('http://www.google.cn/maps/vt?lyrs=s@189&gl=cn&x={x}&y={y}&z={z}', {
+            pane: 'pane_satelite_1',
+            opacity: 1.0,
+            attribution: '',
+            minZoom: 1,
+            maxZoom: 28,
+            minNativeZoom: 0,
+            maxNativeZoom: 18
+        });
+        layer_satelite_1;
+        map.addLayer(layer_satelite_1);
+        function pop_PREDIO_RURAL_2(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">PART_REG</th>\
+                        <td>' + (feature.properties['PART_REG'] !== null ? autolinker.link(String(feature.properties['PART_REG']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['EST_PRED'] !== null ? autolinker.link(String(feature.properties['EST_PRED']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NUM_CUC'] !== null ? autolinker.link(String(feature.properties['NUM_CUC']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['NUM_CRC'] !== null ? autolinker.link(String(feature.properties['NUM_CRC']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['TIP_PRED'] !== null ? autolinker.link(String(feature.properties['TIP_PRED']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['OBSERV'] !== null ? autolinker.link(String(feature.properties['OBSERV']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <td colspan="2">' + (feature.properties['COD_PLANO'] !== null ? autolinker.link(String(feature.properties['COD_PLANO']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">ASIENTO_RE</th>\
+                        <td>' + (feature.properties['ASIENTO_RE'] !== null ? autolinker.link(String(feature.properties['ASIENTO_RE']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">NUM_UC</th>\
+                        <td>' + (feature.properties['NUM_UC'] !== null ? autolinker.link(String(feature.properties['NUM_UC']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_PREDIO_RURAL_2_0() {
+            return {
+                pane: 'pane_PREDIO_RURAL_2',
+                opacity: 1,
+                color: 'rgba(227,26,28,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+        }
+        map.createPane('pane_PREDIO_RURAL_2');
+        map.getPane('pane_PREDIO_RURAL_2').style.zIndex = 402;
+        map.getPane('pane_PREDIO_RURAL_2').style['mix-blend-mode'] = 'normal';
+        var layer_PREDIO_RURAL_2 = new L.geoJson(json_PREDIO_RURAL_2, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_PREDIO_RURAL_2',
+            layerName: 'layer_PREDIO_RURAL_2',
+            pane: 'pane_PREDIO_RURAL_2',
+            onEachFeature: pop_PREDIO_RURAL_2,
+            style: style_PREDIO_RURAL_2_0,
+        });
+        bounds_group.addLayer(layer_PREDIO_RURAL_2);
+        map.addLayer(layer_PREDIO_RURAL_2);
+        function pop_CENTROS_POBLADOS_URBANO_3(feature, layer) {
+            layer.on({
+                mouseout: function(e) {
+                    for (var i in e.target._eventParents) {
+                        if (typeof e.target._eventParents[i].resetStyle === 'function') {
+                            e.target._eventParents[i].resetStyle(e.target);
+                        }
+                    }
+                    if (typeof layer.closePopup == 'function') {
+                        layer.closePopup();
+                    } else {
+                        layer.eachLayer(function(feature){
+                            feature.closePopup()
+                        });
+                    }
+                },
+                mouseover: highlightFeature,
+            });
+            var popupContent = '<table>\
+                    <tr>\
+                        <th scope="row">sector</th>\
+                        <td>' + (feature.properties['sector'] !== null ? autolinker.link(String(feature.properties['sector']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">manzana</th>\
+                        <td>' + (feature.properties['manzana'] !== null ? autolinker.link(String(feature.properties['manzana']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">lote</th>\
+                        <td>' + (feature.properties['lote'] !== null ? autolinker.link(String(feature.properties['lote']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">area</th>\
+                        <td>' + (feature.properties['area'] !== null ? autolinker.link(String(feature.properties['area']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">perimetro</th>\
+                        <td>' + (feature.properties['perimetro'] !== null ? autolinker.link(String(feature.properties['perimetro']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">frente</th>\
+                        <td>' + (feature.properties['frente'] !== null ? autolinker.link(String(feature.properties['frente']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">derecha</th>\
+                        <td>' + (feature.properties['derecha'] !== null ? autolinker.link(String(feature.properties['derecha']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">izquierda</th>\
+                        <td>' + (feature.properties['izquierda'] !== null ? autolinker.link(String(feature.properties['izquierda']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">fondo</th>\
+                        <td>' + (feature.properties['fondo'] !== null ? autolinker.link(String(feature.properties['fondo']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                    <tr>\
+                        <th scope="row">descripc</th>\
+                        <td>' + (feature.properties['descripc'] !== null ? autolinker.link(String(feature.properties['descripc']).replace(/'/g, '\'').toLocaleString()) : '') + '</td>\
+                    </tr>\
+                </table>';
+            var content = removeEmptyRowsFromPopupContent(popupContent, feature);
+			layer.on('popupopen', function(e) {
+				addClassToPopupIfMedia(content, e.popup);
+			});
+			layer.bindPopup(content, { maxHeight: 400 });
+        }
+
+        function style_CENTROS_POBLADOS_URBANO_3_0(feature) {
+            switch(String(feature.properties['sector'])) {
+                case 'CCATUN RUMI':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'GRAN SHINONGARI':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'LOS CEDROS':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'MANTARO':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'NATIVIDAD':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'NOGALPAMPA':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'NUEVA FORTALEZA':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'NUEVO PROGRESO':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'PICHARI':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                case 'PICHARI BAJA':
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+                default:
+                    return {
+                pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+                opacity: 1,
+                color: 'rgba(31,120,180,1.0)',
+                dashArray: '',
+                lineCap: 'butt',
+                lineJoin: 'miter',
+                weight: 2.0, 
+                fillOpacity: 0,
+                interactive: true,
+            }
+                    break;
+            }
+        }
+        map.createPane('pane_CENTROS_POBLADOS_URBANO_3');
+        map.getPane('pane_CENTROS_POBLADOS_URBANO_3').style.zIndex = 403;
+        map.getPane('pane_CENTROS_POBLADOS_URBANO_3').style['mix-blend-mode'] = 'normal';
+        var layer_CENTROS_POBLADOS_URBANO_3 = new L.geoJson(json_CENTROS_POBLADOS_URBANO_3, {
+            attribution: '',
+            interactive: true,
+            dataVar: 'json_CENTROS_POBLADOS_URBANO_3',
+            layerName: 'layer_CENTROS_POBLADOS_URBANO_3',
+            pane: 'pane_CENTROS_POBLADOS_URBANO_3',
+            onEachFeature: pop_CENTROS_POBLADOS_URBANO_3,
+            style: style_CENTROS_POBLADOS_URBANO_3_0,
+        });
+        bounds_group.addLayer(layer_CENTROS_POBLADOS_URBANO_3);
+        map.addLayer(layer_CENTROS_POBLADOS_URBANO_3);
+        const url = {"Nominatim OSM": "https://nominatim.openstreetmap.org/search?format=geojson&addressdetails=1&",
+        "France BAN": "https://api-adresse.data.gouv.fr/search/?"}
+        var photonControl = L.control.photon({
+            url: url["Nominatim OSM"],
+            feedbackLabel: '',
+            position: 'topleft',
+            includePosition: true,
+            initial: true,
+            // resultsHandler: myHandler,
+        }).addTo(map);
+        photonControl._container.childNodes[0].style.borderRadius="10px"
+        // Create a variable to store the geoJSON data
+        var x = null;
+        // Create a variable to store the marker
+        var marker = null;
+        // Add an event listener to the Photon control to create a marker from the returned geoJSON data
+        var z = null;
+        photonControl.on('selected', function(e) {
+            console.log(photonControl.search.resultsContainer);
+            if (x != null) {
+                map.removeLayer(obj3.marker);
+                map.removeLayer(x);
+            }
+            obj2.gcd = e.choice;
+            x = L.geoJSON(obj2.gcd).addTo(map);
+            var label = typeof obj2.gcd.properties.label === 'undefined' ? obj2.gcd.properties.display_name : obj2.gcd.properties.label;
+            obj3.marker = L.marker(x.getLayers()[0].getLatLng()).bindPopup(label).addTo(map);
+            map.setView(x.getLayers()[0].getLatLng(), 17);
+            z = typeof e.choice.properties.label === 'undefined'? e.choice.properties.display_name : e.choice.properties.label;
+            console.log(e);
+            e.target.input.value = z;
+        });
+        var search = document.getElementsByClassName("leaflet-photon leaflet-control")[0];
+        search.classList.add("leaflet-control-search")
+        search.style.display = "flex";
+        search.style.backgroundColor="rgba(255,255,255,0.5)" 
+
+        // Create the new button element
+        var button = document.createElement("div");
+        button.id = "gcd-button-control";
+        button.className = "gcd-gl-btn fa fa-search search-button";
+
+        // Insert the button at the beginning of the search control
+        search.insertBefore(button, search.firstChild);
+        last = search.lastChild;
+        last.style.display = "none";
+        button.addEventListener("click", function (e) {
+            if (last.style.display === "none") {
+                last.style.display = "block";
+            } else {
+                last.style.display = "none";
+            }
+        });
+        var overlaysTree = [
+            {label: 'CENTROS_POBLADOS_URBANO<br /><table><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_CCATUNRUMI0.png" /></td><td>CCATUN RUMI</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_GRANSHINONGARI1.png" /></td><td>GRAN SHINONGARI</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_LOSCEDROS2.png" /></td><td>LOS CEDROS</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_MANTARO3.png" /></td><td>MANTARO</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_NATIVIDAD4.png" /></td><td>NATIVIDAD</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_NOGALPAMPA5.png" /></td><td>NOGALPAMPA</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_NUEVAFORTALEZA6.png" /></td><td>NUEVA FORTALEZA</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_NUEVOPROGRESO7.png" /></td><td>NUEVO PROGRESO</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_PICHARI8.png" /></td><td>PICHARI</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_PICHARIBAJA9.png" /></td><td>PICHARI BAJA</td></tr><tr><td style="text-align: center;"><img src="legend/CENTROS_POBLADOS_URBANO_3_10.png" /></td><td></td></tr></table>', layer: layer_CENTROS_POBLADOS_URBANO_3},
+            {label: '<img src="legend/PREDIO_RURAL_2.png" /> PREDIO_RURAL', layer: layer_PREDIO_RURAL_2},
+            {label: "satelite", layer: layer_satelite_1, radioGroup: 'bm' },
+            {label: "maps", layer: layer_maps_0},]
+        var lay = L.control.layers.tree(null, overlaysTree,{
+            //namedToggle: true,
+            //selectorBack: false,
+            //closedSymbol: '&#8862; &#x1f5c0;',
+            //openedSymbol: '&#8863; &#x1f5c1;',
+            //collapseAll: 'Collapse all',
+            //expandAll: 'Expand all',
+            collapsed: true,
+        });
+        lay.addTo(map);
+        setBounds();
+        map.addControl(new L.Control.Search({
+            layer: layer_CENTROS_POBLADOS_URBANO_3,
+            initial: false,
+            hideMarkerOnCollapse: true,
+            propertyName: 'sector'}));
+        if (typeof url === 'undefined') {
+            document.getElementsByClassName('search-button')[0].className += ' fa fa-binoculars';
+        } else {
+            document.getElementsByClassName('search-button')[1].className += ' fa fa-binoculars';
+        }
+        var mapDiv = document.getElementById('map');
+        var row = document.createElement('div');
+        row.className="row";
+        row.id="all";
+        row.style.height = "100%";
+        var col1 = document.createElement('div');
+        col1.className="col9";
+        col1.id = "mapWindow";
+        col1.style.height = "99%";
+        col1.style.width = "80%";
+        col1.style.display = "inline-block";
+        var col2 = document.createElement('div');
+        col2.className="col3";
+        col2.id = "menu";
+        col2.style.display = "inline-block";
+        mapDiv.parentNode.insertBefore(row, mapDiv);
+        document.getElementById("all").appendChild(col1);
+        document.getElementById("all").appendChild(col2);
+        col1.appendChild(mapDiv)
+        var Filters = {"sector": "str","manzana": "str","lote": "str"};
+        function filterFunc() {
+          map.eachLayer(function(lyr){
+          if ("options" in lyr && "dataVar" in lyr["options"]){
+            features = this[lyr["options"]["dataVar"]].features.slice(0);
+            try{
+              for (key in Filters){
+                keyS = key.replace(/[^a-zA-Z0-9_]/g, "")
+                if (Filters[key] == "str" || Filters[key] == "bool"){
+                  var selection = [];
+                  var options = document.getElementById("sel_" + keyS).options
+                  for (var i=0; i < options.length; i++) {
+                    if (options[i].selected) selection.push(options[i].value);
+                  }
+                    try{
+                      if (key in features[0].properties){
+                        for (i = features.length - 1;
+                          i >= 0; --i){
+                          if (selection.indexOf(
+                          features[i].properties[key])<0
+                          && selection.length>0) {
+                          features.splice(i,1);
+                          }
+                        }
+                      }
+                    } catch(err){
+                  }
+                }
+                if (Filters[key] == "int"){
+                  sliderVals =  document.getElementById(
+                    "div_" + keyS).noUiSlider.get();
+                  try{
+                    if (key in features[0].properties){
+                    for (i = features.length - 1; i >= 0; --i){
+                      if (parseInt(features[i].properties[key])
+                          < sliderVals[0]
+                          || parseInt(features[i].properties[key])
+                          > sliderVals[1]){
+                            features.splice(i,1);
+                          }
+                        }
+                      }
+                    } catch(err){
+                    }
+                  }
+                if (Filters[key] == "real"){
+                  sliderVals =  document.getElementById(
+                    "div_" + keyS).noUiSlider.get();
+                  try{
+                    if (key in features[0].properties){
+                    for (i = features.length - 1; i >= 0; --i){
+                      if (features[i].properties[key]
+                          < sliderVals[0]
+                          || features[i].properties[key]
+                          > sliderVals[1]){
+                            features.splice(i,1);
+                          }
+                        }
+                      }
+                    } catch(err){
+                    }
+                  }
+                if (Filters[key] == "date"
+                  || Filters[key] == "datetime"
+                  || Filters[key] == "time"){
+                  try{
+                    if (key in features[0].properties){
+                      HTMLkey = key.replace(/[&\/\\#,+()$~%.'":*?<>{} ]/g, '');
+                      startdate = document.getElementById("dat_" +
+                        HTMLkey + "_date1").value.replace(" ", "T");
+                      enddate = document.getElementById("dat_" +
+                        HTMLkey + "_date2").value.replace(" ", "T");
+                      for (i = features.length - 1; i >= 0; --i){
+                        if (features[i].properties[key] < startdate
+                          || features[i].properties[key] > enddate){
+                          features.splice(i,1);
+                        }
+                      }
+                    }
+                  } catch(err){
+                  }
+                }
+              }
+            } catch(err){
+            }
+          this[lyr["options"]["layerName"]].clearLayers();
+          this[lyr["options"]["layerName"]].addData(features);
+          }
+          })
+        }
+            document.getElementById("menu").appendChild(
+                document.createElement("div"));
+            var div_sector = document.createElement('div');
+            div_sector.id = "div_sector";
+            div_sector.className= "filterselect";
+            document.getElementById("menu").appendChild(div_sector);
+            sel_sector = document.createElement('select');
+            sel_sector.multiple = true;
+            sel_sector.size = 10;
+            sel_sector.id = "sel_sector";
+            var sector_options_str = "<option value='' unselected></option>";
+            sel_sector.onchange = function(){filterFunc()};
+            sector_options_str  += '<option value="CCATUN RUMI">CCATUN RUMI</option>';
+            sector_options_str  += '<option value="GRAN SHINONGARI">GRAN SHINONGARI</option>';
+            sector_options_str  += '<option value="LOS CEDROS">LOS CEDROS</option>';
+            sector_options_str  += '<option value="MANTARO">MANTARO</option>';
+            sector_options_str  += '<option value="NATIVIDAD">NATIVIDAD</option>';
+            sector_options_str  += '<option value="NOGALPAMPA">NOGALPAMPA</option>';
+            sector_options_str  += '<option value="NUEVA FORTALEZA">NUEVA FORTALEZA</option>';
+            sector_options_str  += '<option value="NUEVO PROGRESO">NUEVO PROGRESO</option>';
+            sector_options_str  += '<option value="PICHARI">PICHARI</option>';
+            sector_options_str  += '<option value="PICHARI BAJA">PICHARI BAJA</option>';
+            sel_sector.innerHTML = sector_options_str;
+            div_sector.appendChild(sel_sector);
+            var lab_sector = document.createElement('div');
+            lab_sector.innerHTML = 'sector';
+            lab_sector.className = 'filterlabel';
+            div_sector.appendChild(lab_sector);
+            var reset_sector = document.createElement('div');
+            reset_sector.innerHTML = 'clear filter';
+            reset_sector.className = 'filterlabel';
+            reset_sector.onclick = function() {
+                var options = document.getElementById("sel_sector").options;
+                for (var i=0; i < options.length; i++) {
+                    options[i].selected = false;
+                }
+                filterFunc();
+            };
+            div_sector.appendChild(reset_sector);
+            document.getElementById("menu").appendChild(
+                document.createElement("div"));
+            var div_manzana = document.createElement('div');
+            div_manzana.id = "div_manzana";
+            div_manzana.className= "filterselect";
+            document.getElementById("menu").appendChild(div_manzana);
+            sel_manzana = document.createElement('select');
+            sel_manzana.multiple = true;
+            sel_manzana.size = 10;
+            sel_manzana.id = "sel_manzana";
+            var manzana_options_str = "<option value='' unselected></option>";
+            sel_manzana.onchange = function(){filterFunc()};
+            manzana_options_str  += '<option value="NULL">NULL</option>';
+            manzana_options_str  += '<option value="A">A</option>';
+            manzana_options_str  += '<option value="A1">A1</option>';
+            manzana_options_str  += '<option value="B">B</option>';
+            manzana_options_str  += '<option value="B1">B1</option>';
+            manzana_options_str  += '<option value="C">C</option>';
+            manzana_options_str  += '<option value="C1">C1</option>';
+            manzana_options_str  += '<option value="D">D</option>';
+            manzana_options_str  += '<option value="D1">D1</option>';
+            manzana_options_str  += '<option value="E">E</option>';
+            manzana_options_str  += '<option value="E1">E1</option>';
+            manzana_options_str  += '<option value="F">F</option>';
+            manzana_options_str  += '<option value="F1">F1</option>';
+            manzana_options_str  += '<option value="F2">F2</option>';
+            manzana_options_str  += '<option value="G">G</option>';
+            manzana_options_str  += '<option value="G1">G1</option>';
+            manzana_options_str  += '<option value="H">H</option>';
+            manzana_options_str  += '<option value="H1">H1</option>';
+            manzana_options_str  += '<option value="I">I</option>';
+            manzana_options_str  += '<option value="J">J</option>';
+            manzana_options_str  += '<option value="K">K</option>';
+            manzana_options_str  += '<option value="L">L</option>';
+            manzana_options_str  += '<option value="M">M</option>';
+            manzana_options_str  += '<option value="N">N</option>';
+            manzana_options_str  += '<option value="O">O</option>';
+            manzana_options_str  += '<option value="P">P</option>';
+            manzana_options_str  += '<option value="Q">Q</option>';
+            manzana_options_str  += '<option value="R">R</option>';
+            manzana_options_str  += '<option value="R1">R1</option>';
+            manzana_options_str  += '<option value="S">S</option>';
+            manzana_options_str  += '<option value="S1">S1</option>';
+            manzana_options_str  += '<option value="T">T</option>';
+            manzana_options_str  += '<option value="U">U</option>';
+            manzana_options_str  += '<option value="V">V</option>';
+            manzana_options_str  += '<option value="W">W</option>';
+            manzana_options_str  += '<option value="X">X</option>';
+            manzana_options_str  += '<option value="Y">Y</option>';
+            manzana_options_str  += '<option value="Y1">Y1</option>';
+            manzana_options_str  += '<option value="Z">Z</option>';
+            sel_manzana.innerHTML = manzana_options_str;
+            div_manzana.appendChild(sel_manzana);
+            var lab_manzana = document.createElement('div');
+            lab_manzana.innerHTML = 'manzana';
+            lab_manzana.className = 'filterlabel';
+            div_manzana.appendChild(lab_manzana);
+            var reset_manzana = document.createElement('div');
+            reset_manzana.innerHTML = 'clear filter';
+            reset_manzana.className = 'filterlabel';
+            reset_manzana.onclick = function() {
+                var options = document.getElementById("sel_manzana").options;
+                for (var i=0; i < options.length; i++) {
+                    options[i].selected = false;
+                }
+                filterFunc();
+            };
+            div_manzana.appendChild(reset_manzana);
+            document.getElementById("menu").appendChild(
+                document.createElement("div"));
+            var div_lote = document.createElement('div');
+            div_lote.id = "div_lote";
+            div_lote.className= "filterselect";
+            document.getElementById("menu").appendChild(div_lote);
+            sel_lote = document.createElement('select');
+            sel_lote.multiple = true;
+            sel_lote.size = 10;
+            sel_lote.id = "sel_lote";
+            var lote_options_str = "<option value='' unselected></option>";
+            sel_lote.onchange = function(){filterFunc()};
+            lote_options_str  += '<option value="NULL">NULL</option>';
+            lote_options_str  += '<option value="1">1</option>';
+            lote_options_str  += '<option value="10">10</option>';
+            lote_options_str  += '<option value="11">11</option>';
+            lote_options_str  += '<option value="12">12</option>';
+            lote_options_str  += '<option value="13">13</option>';
+            lote_options_str  += '<option value="14">14</option>';
+            lote_options_str  += '<option value="15">15</option>';
+            lote_options_str  += '<option value="16">16</option>';
+            lote_options_str  += '<option value="17">17</option>';
+            lote_options_str  += '<option value="18">18</option>';
+            lote_options_str  += '<option value="19">19</option>';
+            lote_options_str  += '<option value="2">2</option>';
+            lote_options_str  += '<option value="20">20</option>';
+            lote_options_str  += '<option value="21">21</option>';
+            lote_options_str  += '<option value="22">22</option>';
+            lote_options_str  += '<option value="23">23</option>';
+            lote_options_str  += '<option value="24">24</option>';
+            lote_options_str  += '<option value="25">25</option>';
+            lote_options_str  += '<option value="26">26</option>';
+            lote_options_str  += '<option value="27">27</option>';
+            lote_options_str  += '<option value="28">28</option>';
+            lote_options_str  += '<option value="29">29</option>';
+            lote_options_str  += '<option value="3">3</option>';
+            lote_options_str  += '<option value="30">30</option>';
+            lote_options_str  += '<option value="31">31</option>';
+            lote_options_str  += '<option value="32">32</option>';
+            lote_options_str  += '<option value="33">33</option>';
+            lote_options_str  += '<option value="4">4</option>';
+            lote_options_str  += '<option value="5">5</option>';
+            lote_options_str  += '<option value="6">6</option>';
+            lote_options_str  += '<option value="7">7</option>';
+            lote_options_str  += '<option value="8">8</option>';
+            lote_options_str  += '<option value="9">9</option>';
+            sel_lote.innerHTML = lote_options_str;
+            div_lote.appendChild(sel_lote);
+            var lab_lote = document.createElement('div');
+            lab_lote.innerHTML = 'lote';
+            lab_lote.className = 'filterlabel';
+            div_lote.appendChild(lab_lote);
+            var reset_lote = document.createElement('div');
+            reset_lote.innerHTML = 'clear filter';
+            reset_lote.className = 'filterlabel';
+            reset_lote.onclick = function() {
+                var options = document.getElementById("sel_lote").options;
+                for (var i=0; i < options.length; i++) {
+                    options[i].selected = false;
+                }
+                filterFunc();
+            };
+            div_lote.appendChild(reset_lote);
+        </script>        
+    </body>
+</html>
